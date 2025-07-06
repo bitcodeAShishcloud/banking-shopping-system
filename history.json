@@ -1,0 +1,50 @@
+[
+  {
+    "timestamp": "2025-07-06 15:00:45",
+    "customer": "Guest",
+    "customer_name": "Guest User",
+    "items": [
+      {
+        "product_id": "P001",
+        "name": "Laptop",
+        "quantity": 1,
+        "price": 1000000.0,
+        "discounted_price": 1000000.0,
+        "line_total": 1000000.0,
+        "gst_amount": 180000.0,
+        "cashback_amount": 0.0
+      }
+    ],
+    "subtotal_pre_gst": 1000000.0,
+    "total_gst": 180000.0,
+    "delivery_charge": 0,
+    "total_cashback": 0.0,
+    "grand_total": 1180000.0,
+    "status": "Confirmed",
+    "order_id": "ORD1751794245"
+  },
+  {
+    "timestamp": "2025-07-06 15:04:06",
+    "customer": "Guest",
+    "customer_name": "Guest User",
+    "items": [
+      {
+        "product_id": "P001",
+        "name": "Laptop",
+        "quantity": 2,
+        "price": 1000000.0,
+        "discounted_price": 1000000.0,
+        "line_total": 2000000.0,
+        "gst_amount": 360000.0,
+        "cashback_amount": 0.0
+      }
+    ],
+    "subtotal_pre_gst": 2000000.0,
+    "total_gst": 360000.0,
+    "delivery_charge": 0,
+    "total_cashback": 0.0,
+    "grand_total": 2360000.0,
+    "status": "Confirmed",
+    "order_id": "ORD1751794446"
+  }
+]

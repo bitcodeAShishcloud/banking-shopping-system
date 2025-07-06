@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "c:\Users\shesh\Desktop\Project\shopping_cart_and_banking-system.py", line 4724, in <module>
+    app = MainApp()
+  File "c:\Users\shesh\Desktop\Project\shopping_cart_and_banking-system.py", line 882, in __init__
+    self.build_products_tab()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "c:\Users\shesh\Desktop\Project\shopping_cart_and_banking-system.py", line 2242, in build_products_tab
+    tk.Label(instruction_frame, text="💡 Double-click on any product to view detailed information",
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            font=("Segoe UI", 11), bg="#f0f6ff", fg="#6c757d", style="italic").pack()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\shesh\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 3363, in __init__
+    Widget.__init__(self, master, 'label', cnf, kw)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\shesh\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2774, in __init__
+    self.tk.call(
+    ~~~~~~~~~~~~^
+        (widgetName, self._w) + extra + self._options(cnf))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: unknown option "-style"

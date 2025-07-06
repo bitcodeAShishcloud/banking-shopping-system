@@ -1,0 +1,16 @@
+[
+  {
+    "product_id": "P001",
+    "name": "Laptop",
+    "price": 1000000.0,
+    "quantity_available": 1000,
+    "category": "",
+    "gst_rate": 18.0,
+    "discount_percent": 0.0,
+    "cashback_percent": 0.0,
+    "photos": [
+      "C:/Users/shesh/Downloads/lenovo legion 2.jpg"
+    ],
+    "photo": "C:/Users/shesh/Downloads/lenovo legion 2.jpg"
+  }
+]

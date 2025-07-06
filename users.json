@@ -1,0 +1,26 @@
+{
+  "demo@example.com": {
+    "name": "Demo User",
+    "email": "demo@example.com",
+    "password": "demo123",
+    "join_date": "2024-01-01"
+  },
+  "admin@example.com": {
+    "name": "Admin User",
+    "email": "admin@example.com",
+    "password": "admin123",
+    "join_date": "2024-01-01"
+  },
+  "agupta38160@gmail.com": {
+    "name": "Ashish",
+    "email": "agupta38160@gmail.com",
+    "password": "123456",
+    "join_date": "2025-07-06"
+  },
+  "addsfas": {
+    "name": "aaaa",
+    "email": "addsfas",
+    "password": "123456",
+    "join_date": "2025-07-06"
+  }
+}

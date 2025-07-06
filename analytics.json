@@ -1,0 +1,132 @@
+{
+  "sessions": [
+    {
+      "session_id": "5a8530e56384f485",
+      "start_time": "2025-07-06T14:57:29.765236",
+      "events": [
+        {
+          "timestamp": "2025-07-06T14:57:30.513691",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T14:57:37.623035",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T14:57:37.623121"
+    },
+    {
+      "session_id": "4e1544bf0ca7e232",
+      "start_time": "2025-07-06T14:58:50.146111",
+      "events": [
+        {
+          "timestamp": "2025-07-06T14:58:50.914482",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T15:00:45.108603",
+          "type": "purchase",
+          "data": {
+            "order_id": "ORD1751794245",
+            "total_amount": 1180000.0,
+            "item_count": 1,
+            "customer": "Guest"
+          }
+        },
+        {
+          "timestamp": "2025-07-06T15:00:48.477121",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T15:00:48.499289"
+    },
+    {
+      "session_id": "7ad5f0607b3be68e",
+      "start_time": "2025-07-06T15:03:30.034842",
+      "events": [
+        {
+          "timestamp": "2025-07-06T15:03:30.815542",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T15:04:06.118108",
+          "type": "purchase",
+          "data": {
+            "order_id": "ORD1751794446",
+            "total_amount": 2360000.0,
+            "item_count": 1,
+            "customer": "Guest"
+          }
+        },
+        {
+          "timestamp": "2025-07-06T15:04:08.145358",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T15:04:08.154157"
+    },
+    {
+      "session_id": "912322d0bfbb93fa",
+      "start_time": "2025-07-06T15:05:24.909001",
+      "events": [
+        {
+          "timestamp": "2025-07-06T15:05:25.812915",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T15:05:44.135202",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T15:05:44.142496"
+    },
+    {
+      "session_id": "8c346d918b1557ca",
+      "start_time": "2025-07-06T15:09:18.089719",
+      "events": [
+        {
+          "timestamp": "2025-07-06T15:09:18.912530",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T15:09:58.884090",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T15:09:58.894754"
+    },
+    {
+      "session_id": "c285b8a5b3d0f281",
+      "start_time": "2025-07-06T15:18:48.395210",
+      "events": [
+        {
+          "timestamp": "2025-07-06T15:18:49.194901",
+          "type": "app_start",
+          "data": {}
+        },
+        {
+          "timestamp": "2025-07-06T15:19:01.306331",
+          "type": "app_close",
+          "data": {}
+        }
+      ],
+      "performance_metrics": {},
+      "end_time": "2025-07-06T15:19:01.314358"
+    }
+  ]
+}

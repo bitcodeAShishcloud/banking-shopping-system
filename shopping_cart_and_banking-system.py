@@ -6,6 +6,12 @@ import csv
 import json
 from datetime import date, datetime
 from collections import Counter
+import hashlib
+import secrets
+import re
+import threading
+import time
+import logging
 
 # File paths
 FILES = {
@@ -16,8 +22,26 @@ FILES = {
     'SHOP': 'shop.json',
     'ACCOUNTS': 'accounts.json',
     'TRANSACTIONS': 'transactions.json',
-    'SETTINGS': 'settings.json'
+    'SETTINGS': 'settings.json',
+    'USERS': 'users.json',
+    'ANALYTICS': 'analytics.json',
+    'LOGS': 'app.log'
 }
+
+# Configure logging
+logging.basicConfig(
+    filename=FILES['LOGS'],
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Create console handler for development
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)
+formatter = logging.Formatter('%(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logging.getLogger().addHandler(console_handler)
 
 # Default configurations
 DEFAULT_CATEGORIES = [
@@ -62,6 +86,128 @@ def append_feedback(feedback):
     with open(FILES['FEEDBACK'], "a", encoding="utf-8") as f:
         f.write(feedback + "\n---\n")
 
+# Security functions
+def hash_password(password: str) -> str:
+    """Hash password with salt for secure storage"""
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+    return f"{salt}:{password_hash.hex()}"
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against stored hash"""
+    try:
+        salt, stored_hash = hashed.split(':')
+        password_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+        return stored_hash == password_hash.hex()
+    except ValueError:
+        return False
+
+def validate_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def validate_password_strength(password: str) -> dict:
+    """Validate password strength and return feedback"""
+    result = {"valid": True, "issues": []}
+    
+    if len(password) < 8:
+        result["issues"].append("At least 8 characters")
+        result["valid"] = False
+    
+    if not re.search(r'[A-Z]', password):
+        result["issues"].append("At least one uppercase letter")
+        result["valid"] = False
+    
+    if not re.search(r'[a-z]', password):
+        result["issues"].append("At least one lowercase letter")
+        result["valid"] = False
+    
+    if not re.search(r'\d', password):
+        result["issues"].append("At least one number")
+        result["valid"] = False
+    
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        result["issues"].append("At least one special character")
+        result["valid"] = False
+    
+    return result
+
+class SecureSession:
+    """Secure session management"""
+    def __init__(self):
+        self.session_token = None
+        self.user_id = None
+        self.login_time = None
+        self.last_activity = None
+        self.failed_attempts = {}
+    
+    def create_session(self, user_id):
+        self.session_token = secrets.token_urlsafe(32)
+        self.user_id = user_id
+        self.login_time = datetime.now()
+        self.last_activity = datetime.now()
+        # Reset failed attempts on successful login
+        if user_id in self.failed_attempts:
+            del self.failed_attempts[user_id]
+    
+    def is_valid(self, timeout_minutes=30):
+        if not self.session_token:
+            return False
+        
+        time_since_activity = datetime.now() - self.last_activity
+        return time_since_activity.total_seconds() < (timeout_minutes * 60)
+    
+    def update_activity(self):
+        self.last_activity = datetime.now()
+    
+    def is_account_locked(self, user_id, max_attempts=5, lockout_minutes=15):
+        """Check if account is locked due to failed login attempts"""
+        if user_id not in self.failed_attempts:
+            return False
+        
+        attempts_data = self.failed_attempts[user_id]
+        if attempts_data['count'] >= max_attempts:
+            time_since_last = datetime.now() - attempts_data['last_attempt']
+            return time_since_last.total_seconds() < (lockout_minutes * 60)
+        
+        return False
+    
+    def record_failed_attempt(self, user_id):
+        """Record a failed login attempt"""
+        if user_id not in self.failed_attempts:
+            self.failed_attempts[user_id] = {'count': 0, 'last_attempt': datetime.now()}
+        
+        self.failed_attempts[user_id]['count'] += 1
+        self.failed_attempts[user_id]['last_attempt'] = datetime.now()
+
+# Rate limiting for API calls
+class RateLimiter:
+    """Simple rate limiter for preventing abuse"""
+    def __init__(self, max_requests=10, window_seconds=60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = {}
+    
+    def is_allowed(self, identifier):
+        """Check if request is allowed for given identifier"""
+        now = time.time()
+        if identifier not in self.requests:
+            self.requests[identifier] = []
+        
+        # Remove old requests outside the window
+        self.requests[identifier] = [
+            req_time for req_time in self.requests[identifier]
+            if now - req_time < self.window_seconds
+        ]
+        
+        # Check if under limit
+        if len(self.requests[identifier]) < self.max_requests:
+            self.requests[identifier].append(now)
+            return True
+        
+        return False
+
 def add_hover_effect(widget, bg_normal, fg_normal, bg_hover, fg_hover, tooltip_text=None):
     def on_enter(e):
         widget['background'] = bg_hover
@@ -81,6 +227,329 @@ def add_hover_effect(widget, bg_normal, fg_normal, bg_hover, fg_hover, tooltip_t
             del widget.tooltip
     widget.bind("<Enter>", on_enter)
     widget.bind("<Leave>", on_leave)
+
+class NotificationManager:
+    """Modern notification system"""
+    def __init__(self, parent):
+        self.parent = parent
+        self.notifications = []
+    
+    def show_notification(self, message, notification_type="info", duration=3000):
+        """Show a notification banner"""
+        # Create notification frame
+        notification = tk.Frame(self.parent, height=50)
+        notification.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(5, 0))
+        
+        # Style based on type
+        colors = {
+            "info": {"bg": "#d1ecf1", "fg": "#0c5460", "border": "#bee5eb"},
+            "success": {"bg": "#d4edda", "fg": "#155724", "border": "#c3e6cb"},
+            "warning": {"bg": "#fff3cd", "fg": "#856404", "border": "#ffeaa7"},
+            "error": {"bg": "#f8d7da", "fg": "#721c24", "border": "#f5c6cb"}
+        }
+        
+        color = colors.get(notification_type, colors["info"])
+        notification.configure(bg=color["bg"], relief="solid", bd=1)
+        
+        # Add message
+        label = tk.Label(
+            notification, 
+            text=message, 
+            bg=color["bg"], 
+            fg=color["fg"],
+            font=("Segoe UI", 10, "bold"),
+            pady=10
+        )
+        label.pack(side=tk.LEFT, padx=15)
+        
+        # Add close button
+        close_btn = tk.Button(
+            notification,
+            text="×",
+            bg=color["bg"],
+            fg=color["fg"],
+            border=0,
+            font=("Segoe UI", 12, "bold"),
+            command=lambda: self._close_notification(notification)
+        )
+        close_btn.pack(side=tk.RIGHT, padx=10)
+        
+        # Auto-close after duration
+        self.parent.after(duration, lambda: self._close_notification(notification))
+        
+        self.notifications.append(notification)
+    
+    def _close_notification(self, notification):
+        """Close and remove notification"""
+        if notification in self.notifications:
+            notification.destroy()
+            self.notifications.remove(notification)
+
+class ModernUI:
+    """Modern UI components and styling"""
+    
+    @staticmethod
+    def create_card_frame(parent, **kwargs):
+        """Create a modern card-style frame"""
+        frame = tk.Frame(
+            parent,
+            bg=kwargs.get('bg', '#ffffff'),
+            relief='solid',
+            bd=1,
+            padx=kwargs.get('padx', 20),
+            pady=kwargs.get('pady', 15)
+        )
+        
+        # Add subtle shadow effect
+        shadow = tk.Frame(parent, bg='#e0e0e0', height=2)
+        return frame, shadow
+    
+    @staticmethod
+    def create_gradient_button(parent, text, command, **kwargs):
+        """Create a modern gradient-style button"""
+        btn = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=kwargs.get('bg', '#007bff'),
+            fg=kwargs.get('fg', 'white'),
+            font=kwargs.get('font', ('Segoe UI', 11, 'bold')),
+            relief='flat',
+            bd=0,
+            padx=kwargs.get('padx', 20),
+            pady=kwargs.get('pady', 10),
+            cursor='hand2'
+        )
+        
+        # Add hover effects
+        normal_bg = kwargs.get('bg', '#007bff')
+        hover_bg = kwargs.get('hover_bg', '#0056b3')
+        
+        def on_enter(e):
+            btn.configure(bg=hover_bg)
+        def on_leave(e):
+            btn.configure(bg=normal_bg)
+        
+        btn.bind('<Enter>', on_enter)
+        btn.bind('<Leave>', on_leave)
+        
+        return btn
+    
+    @staticmethod
+    def create_modern_entry(parent, placeholder="", **kwargs):
+        """Create a modern entry widget with placeholder"""
+        entry = tk.Entry(
+            parent,
+            font=kwargs.get('font', ('Segoe UI', 11)),
+            relief='solid',
+            bd=1,
+            **kwargs
+        )
+        
+        # Add placeholder functionality
+        if placeholder:
+            entry.placeholder = placeholder
+            entry.placeholder_color = '#999999'
+            entry.default_color = entry.cget('fg')
+            
+            def on_focus_in(event):
+                if entry.get() == entry.placeholder:
+                    entry.delete(0, tk.END)
+                    entry.configure(fg=entry.default_color)
+            
+            def on_focus_out(event):
+                if not entry.get():
+                    entry.insert(0, entry.placeholder)
+                    entry.configure(fg=entry.placeholder_color)
+            
+            entry.bind('<FocusIn>', on_focus_in)
+            entry.bind('<FocusOut>', on_focus_out)
+            
+            # Set initial placeholder
+            entry.insert(0, placeholder)
+            entry.configure(fg=entry.placeholder_color)
+        
+        return entry
+
+class AnalyticsTracker:
+    """Track user behavior and app performance"""
+    def __init__(self):
+        self.analytics_file = FILES['ANALYTICS']
+        self.session_data = {
+            'session_id': secrets.token_hex(8),
+            'start_time': datetime.now().isoformat(),
+            'events': [],
+            'performance_metrics': {}
+        }
+    
+    def track_event(self, event_type, event_data=None):
+        """Track user events for analytics"""
+        event = {
+            'timestamp': datetime.now().isoformat(),
+            'type': event_type,
+            'data': event_data or {}
+        }
+        self.session_data['events'].append(event)
+        
+        # Log important events
+        if event_type in ['login', 'logout', 'purchase', 'error']:
+            logging.info(f"Analytics: {event_type} - {event_data}")
+    
+    def track_performance(self, operation, duration):
+        """Track performance metrics"""
+        if operation not in self.session_data['performance_metrics']:
+            self.session_data['performance_metrics'][operation] = []
+        
+        self.session_data['performance_metrics'][operation].append({
+            'duration': duration,
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    def save_session(self):
+        """Save session analytics to file"""
+        try:
+            # Load existing analytics
+            analytics_data = load_json(self.analytics_file, {'sessions': []})
+            
+            # Add current session
+            self.session_data['end_time'] = datetime.now().isoformat()
+            analytics_data['sessions'].append(self.session_data)
+            
+            # Keep only last 1000 sessions to prevent file bloat
+            analytics_data['sessions'] = analytics_data['sessions'][-1000:]
+            
+            # Save analytics
+            save_json(self.analytics_file, analytics_data)
+            
+        except Exception as e:
+            logging.error(f"Failed to save analytics: {e}")
+
+# GST utilities and validation
+class GSTUtils:
+    """Utility class for GST calculations and validations"""
+    
+    # Standard GST rates in India
+    STANDARD_GST_RATES = [0, 3, 5, 12, 18, 28]
+    
+    @staticmethod
+    def validate_gst_number(gst_number):
+        """
+        Validate GST number format (15 characters: 2 state code + 10 PAN + 1 entity + 1 check digit + 1 default)
+        Example: 07AABCU9603R1ZM
+        """
+        if not gst_number or len(gst_number) != 15:
+            return False
+        
+        # Check if first 2 characters are digits (state code)
+        if not gst_number[:2].isdigit():
+            return False
+        
+        # Check if characters 3-12 are alphanumeric (PAN format)
+        pan_part = gst_number[2:12]
+        if not pan_part.isalnum():
+            return False
+        
+        # Check if remaining characters are alphanumeric
+        if not gst_number[12:].isalnum():
+            return False
+        
+        return True
+    
+    @staticmethod
+    def validate_gst_rate(gst_rate):
+        """Validate if GST rate is a standard rate"""
+        return gst_rate in GSTUtils.STANDARD_GST_RATES
+    
+    @staticmethod
+    def get_gst_rate_category(gst_rate):
+        """Get the category based on GST rate"""
+        if gst_rate == 0:
+            return "Exempt"
+        elif gst_rate == 3:
+            return "Essential Goods"
+        elif gst_rate == 5:
+            return "Necessities"
+        elif gst_rate == 12:
+            return "Standard Goods"
+        elif gst_rate == 18:
+            return "Standard Services"
+        elif gst_rate == 28:
+            return "Luxury Items"
+        else:
+            return "Custom Rate"
+    
+    @staticmethod
+    def format_gst_invoice_number(order_id, financial_year=None):
+        """Generate GST invoice number format"""
+        if not financial_year:
+            current_date = datetime.now()
+            if current_date.month >= 4:  # Financial year starts from April
+                fy_start = current_date.year
+                fy_end = current_date.year + 1
+            else:
+                fy_start = current_date.year - 1
+                fy_end = current_date.year
+            financial_year = f"{fy_start}-{str(fy_end)[2:]}"
+        
+        return f"GST/{financial_year}/{order_id}"
+    
+    @staticmethod
+    def calculate_reverse_charge(amount, is_reverse_charge=False):
+        """Calculate reverse charge applicability"""
+        if is_reverse_charge:
+            return {
+                'applicable': True,
+                'amount': amount,
+                'note': 'Reverse charge applicable as per Section 9(3) of CGST Act'
+            }
+        return {'applicable': False, 'amount': 0, 'note': ''}
+
+def validate_product_gst_data(product):
+    """Validate GST-related data in product"""
+    errors = []
+    
+    # Check GST rate
+    gst_rate = product.get('gst_rate', 0)
+    if not isinstance(gst_rate, (int, float)) or gst_rate < 0 or gst_rate > 28:
+        errors.append(f"Invalid GST rate: {gst_rate}. Must be between 0 and 28.")
+    
+    if not GSTUtils.validate_gst_rate(gst_rate):
+        errors.append(f"Non-standard GST rate: {gst_rate}. Standard rates are: {GSTUtils.STANDARD_GST_RATES}")
+    
+    # Check price structure
+    if 'price_inclusive_gst' not in product:
+        product['price_inclusive_gst'] = True  # Default to inclusive
+    
+    return errors
+class CacheManager:
+    """Simple caching system for improved performance"""
+    def __init__(self, default_timeout=300):  # 5 minutes default
+        self.cache = {}
+        self.default_timeout = default_timeout
+    
+    def get(self, key):
+        """Get cached value if not expired"""
+        if key in self.cache:
+            value, timestamp = self.cache[key]
+            if time.time() - timestamp < self.default_timeout:
+                return value
+            else:
+                del self.cache[key]
+        return None
+    
+    def set(self, key, value, timeout=None):
+        """Set cache value with timestamp"""
+        timeout = timeout or self.default_timeout
+        self.cache[key] = (value, time.time())
+    
+    def invalidate(self, key):
+        """Remove item from cache"""
+        if key in self.cache:
+            del self.cache[key]
+    
+    def clear(self):
+        """Clear all cache"""
+        self.cache.clear()
 
 # --- Add per-user cashback system ---
 
@@ -104,50 +573,176 @@ class ShoppingCart:
     def clear(self):
         self.items.clear()
 
+    @staticmethod
+    def calculate_gst_breakdown(base_amount, gst_rate, is_interstate=False):
+        """
+        Calculate GST breakdown for CGST, SGST, and IGST
+        
+        Args:
+            base_amount (float): Base amount before GST
+            gst_rate (float): GST rate as percentage (e.g., 18 for 18%)
+            is_interstate (bool): True for interstate transaction (IGST), False for intrastate (CGST+SGST)
+        
+        Returns:
+            dict: GST breakdown with cgst, sgst, igst amounts
+        """
+        total_gst = base_amount * (gst_rate / 100)
+        
+        if is_interstate:
+            return {
+                'cgst': 0,
+                'sgst': 0,
+                'igst': total_gst,
+                'total': total_gst
+            }
+        else:
+            # For intrastate: CGST = SGST = Total GST / 2
+            half_gst = total_gst / 2
+            return {
+                'cgst': half_gst,
+                'sgst': half_gst,
+                'igst': 0,
+                'total': total_gst
+            }
+
+    @staticmethod
+    def extract_gst_from_inclusive_price(inclusive_price, gst_rate):
+        """
+        Extract base price and GST amount from GST-inclusive price
+        
+        Args:
+            inclusive_price (float): Price including GST
+            gst_rate (float): GST rate as percentage
+        
+        Returns:
+            tuple: (base_price, gst_amount)
+        """
+        base_price = inclusive_price / (1 + (gst_rate / 100))
+        gst_amount = inclusive_price - base_price
+        return base_price, gst_amount
+
+    @staticmethod
+    def add_gst_to_exclusive_price(exclusive_price, gst_rate):
+        """
+        Add GST to GST-exclusive price
+        
+        Args:
+            exclusive_price (float): Price excluding GST
+            gst_rate (float): GST rate as percentage
+        
+        Returns:
+            tuple: (base_price, gst_amount, total_price)
+        """
+        gst_amount = exclusive_price * (gst_rate / 100)
+        total_price = exclusive_price + gst_amount
+        return exclusive_price, gst_amount, total_price
+
     def get_details(self, products):
         catalog = {p['product_id']: p for p in products}
         items = []
         subtotal_pre_gst = 0
         total_gst = 0
+        total_cgst = 0
+        total_sgst = 0
+        total_igst = 0
         total_cashback = 0
 
         for pid, qty in self.items.items():
             if pid in catalog:
                 product = catalog[pid]
                 price = float(product.get('price', 0))
-                gst_rate = float(product.get('gst_rate', 0))
+                gst_rate = float(product.get('gst_rate', 0))  # Expected as percentage (e.g., 18 for 18%)
                 discount = float(product.get('discount_percent', 0))
                 # Use user cashback if set, else product cashback
                 cashback = self.user_cashback if self.user_cashback > 0 else float(product.get('cashback_percent', 0))
+                
+                # Check if price is inclusive or exclusive of GST
+                price_inclusive_gst = product.get('price_inclusive_gst', True)  # Default to inclusive
+                
+                # Calculate base price and GST amounts
+                if price_inclusive_gst:
+                    # Price includes GST - extract GST from the price
+                    base_price = price / (1 + (gst_rate / 100))
+                    gst_per_unit = price - base_price
+                else:
+                    # Price excludes GST - add GST to the price
+                    base_price = price
+                    gst_per_unit = price * (gst_rate / 100)
 
-                discounted_price = price * (1 - discount / 100)
-                line_total = discounted_price * qty
-                gst_amount = line_total * gst_rate
-                cashback_amount = discounted_price * (cashback / 100) * qty
+                # Apply discount to base price
+                discounted_base_price = base_price * (1 - discount / 100)
+                
+                # Calculate line totals
+                line_subtotal = discounted_base_price * qty
+                line_gst_amount = gst_per_unit * (1 - discount / 100) * qty
+                line_total = line_subtotal + line_gst_amount
+                
+                # Calculate GST breakdown (CGST + SGST for intra-state, IGST for inter-state)
+                # For simplicity, assuming intra-state transactions (CGST + SGST)
+                # In real applications, this would be determined by buyer/seller state
+                is_interstate = product.get('is_interstate', False)
+                
+                if is_interstate:
+                    igst_amount = line_gst_amount
+                    cgst_amount = 0
+                    sgst_amount = 0
+                else:
+                    igst_amount = 0
+                    cgst_amount = line_gst_amount / 2
+                    sgst_amount = line_gst_amount / 2
+
+                # Calculate cashback based on discounted base price
+                cashback_amount = discounted_base_price * (cashback / 100) * qty
 
                 items.append({
                     'product': product,
                     'quantity': qty,
-                    'price': price,
-                    'discounted_price': discounted_price,
+                    'original_price': price,
+                    'base_price': base_price,
+                    'discounted_base_price': discounted_base_price,
+                    'gst_rate': gst_rate,
+                    'gst_per_unit': gst_per_unit,
+                    'line_subtotal': line_subtotal,
+                    'line_gst_amount': line_gst_amount,
+                    'cgst_amount': cgst_amount,
+                    'sgst_amount': sgst_amount,
+                    'igst_amount': igst_amount,
                     'line_total': line_total,
-                    'gst_amount': gst_amount,
                     'cashback_amount': cashback_amount,
-                    'cashback_percent': cashback
+                    'cashback_percent': cashback,
+                    'price_inclusive_gst': price_inclusive_gst
                 })
 
-                subtotal_pre_gst += line_total
-                total_gst += gst_amount
+                subtotal_pre_gst += line_subtotal
+                total_gst += line_gst_amount
+                total_cgst += cgst_amount
+                total_sgst += sgst_amount
+                total_igst += igst_amount
                 total_cashback += cashback_amount
 
         delivery_charge = 0 if subtotal_pre_gst > 50 else 5
+        delivery_gst_rate = 18.0  # 18% GST on delivery
+        delivery_gst = delivery_charge * (delivery_gst_rate / 100) if delivery_charge > 0 else 0
+        
+        # Add delivery GST to totals
+        total_gst += delivery_gst
+        if delivery_charge > 0:
+            # Assuming intra-state delivery
+            total_cgst += delivery_gst / 2
+            total_sgst += delivery_gst / 2
+
         grand_total = subtotal_pre_gst + total_gst + delivery_charge
 
         return {
             'items': items,
             'subtotal_pre_gst': subtotal_pre_gst,
             'total_gst': total_gst,
+            'total_cgst': total_cgst,
+            'total_sgst': total_sgst,
+            'total_igst': total_igst,
             'delivery_charge': delivery_charge,
+            'delivery_gst': delivery_gst,
+            'delivery_gst_rate': delivery_gst_rate,
             'grand_total': grand_total,
             'total_cashback': total_cashback
         }
@@ -160,6 +755,13 @@ class MainApp(tk.Tk):
         self.configure(bg="#f7f9fa")
         self.minsize(1100, 700)
 
+        # Initialize security and UI components
+        self.session = SecureSession()
+        self.rate_limiter = RateLimiter()
+        self.notification_manager = NotificationManager(self)
+        self.cache_manager = CacheManager()
+        self.analytics = AnalyticsTracker()
+
         # Initialize data
         self.cart = ShoppingCart()
         self.products = load_json(FILES['PRODUCTS'], [])
@@ -171,6 +773,15 @@ class MainApp(tk.Tk):
         self.dark_mode = self.settings.get("dark_mode", False)
         self.notifications_enabled = self.settings.get("notifications_enabled", True)
         self.language = self.settings.get("language", "English")
+        
+        # User session management
+        self.current_user = None  # Will store logged-in user info
+        self.is_logged_in = False
+        self.users = load_json(FILES['USERS'], {})  # Separate file for user credentials
+        
+        # Auto-logout timer
+        self.auto_logout_timer = None
+        self.start_auto_logout_timer()
 
         # --- Improved Style ---
         self.style = ttk.Style(self)
@@ -277,6 +888,299 @@ class MainApp(tk.Tk):
 
         # Setup navigation bar and menus
         self.setup_navigation_and_menus()
+        
+        # Bind activity tracking events
+        self.bind_all('<Button-1>', lambda e: self.reset_activity_timer())
+        self.bind_all('<Key>', lambda e: self.reset_activity_timer())
+        self.bind_all('<Motion>', lambda e: self.reset_activity_timer())
+        
+        # Bind window close event for proper cleanup
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Track app start
+        self.analytics.track_event('app_start')
+
+    def start_auto_logout_timer(self):
+        """Start or restart the auto-logout timer"""
+        if self.auto_logout_timer:
+            self.after_cancel(self.auto_logout_timer)
+        
+        # Auto logout after 30 minutes of inactivity
+        self.auto_logout_timer = self.after(30 * 60 * 1000, self.auto_logout)
+
+    def auto_logout(self):
+        """Automatically logout user after inactivity"""
+        if self.is_logged_in:
+            self.logout_user()
+            self.notification_manager.show_notification(
+                "You have been automatically logged out due to inactivity.", 
+                "warning"
+            )
+
+    def reset_activity_timer(self):
+        """Reset the activity timer on user interaction"""
+        if self.is_logged_in:
+            self.session.update_activity()
+            self.start_auto_logout_timer()
+
+    def login_user(self, email, password):
+        """Secure user login with rate limiting and account lockout"""
+        # Rate limiting check
+        if not self.rate_limiter.is_allowed(email):
+            self.notification_manager.show_notification(
+                "Too many login attempts. Please try again later.", 
+                "error"
+            )
+            return False
+
+        # Account lockout check
+        if self.session.is_account_locked(email):
+            self.notification_manager.show_notification(
+                "Account temporarily locked due to failed login attempts.", 
+                "error"
+            )
+            return False
+
+        # Validate credentials
+        if email in self.users:
+            user_data = self.users[email]
+            stored_password = user_data.get('password', '')
+            
+            # Check if password is hashed (new format) or plain text (old format)
+            if ':' in stored_password and len(stored_password) > 50:
+                # Hashed password
+                if verify_password(password, stored_password):
+                    self._complete_login(email, user_data)
+                    return True
+            else:
+                # Plain text password (legacy) - upgrade to hashed
+                if password == stored_password:
+                    # Upgrade to hashed password
+                    self.users[email]['password'] = hash_password(password)
+                    save_json(FILES['USERS'], self.users)
+                    self._complete_login(email, user_data)
+                    return True
+
+        # Failed login attempt
+        self.session.record_failed_attempt(email)
+        self.notification_manager.show_notification(
+            "Invalid email or password.", 
+            "error"
+        )
+        return False
+
+    def _complete_login(self, email, user_data):
+        """Complete the login process"""
+        self.current_user = {
+            'email': email,
+            'name': user_data.get('name', 'User'),
+            'role': user_data.get('role', 'customer'),
+            'cashback_percent': user_data.get('cashback_percent', 0)
+        }
+        self.is_logged_in = True
+        self.session.create_session(email)
+        
+        # Set user cashback in cart
+        self.cart.user_cashback = self.current_user.get('cashback_percent', 0)
+        
+        # Track login event
+        self.analytics.track_event('login', {
+            'user_email': email,
+            'user_role': user_data.get('role', 'customer')
+        })
+        
+        # Update profile tab
+        self.update_profile_display()
+        
+        # Show welcome notification
+        self.notification_manager.show_notification(
+            f"Welcome back, {self.current_user['name']}!", 
+            "success"
+        )
+        
+        # Start activity timer
+        self.start_auto_logout_timer()
+        
+        logging.info(f"User logged in: {email}")
+
+    def register_user(self, email, password, name, phone=""):
+        """Register new user with secure password storage"""
+        # Validate email
+        if not validate_email(email):
+            self.notification_manager.show_notification(
+                "Please enter a valid email address.", 
+                "error"
+            )
+            return False
+
+        # Check if user already exists
+        if email in self.users:
+            self.notification_manager.show_notification(
+                "User with this email already exists.", 
+                "error"
+            )
+            return False
+
+        # Validate password strength
+        password_check = validate_password_strength(password)
+        if not password_check["valid"]:
+            issues = ", ".join(password_check["issues"])
+            self.notification_manager.show_notification(
+                f"Password requirements: {issues}", 
+                "error"
+            )
+            return False
+
+        # Create new user
+        self.users[email] = {
+            'name': name,
+            'password': hash_password(password),
+            'phone': phone,
+            'role': 'customer',
+            'cashback_percent': 0,
+            'created_at': datetime.now().isoformat(),
+            'last_login': None
+        }
+        
+        save_json(FILES['USERS'], self.users)
+        
+        # Track registration event
+        self.analytics.track_event('registration', {
+            'user_email': email,
+            'user_name': name
+        })
+        
+        logging.info(f"New user registered: {email}")
+        
+        self.notification_manager.show_notification(
+            "Account created successfully! You can now log in.", 
+            "success"
+        )
+        return True
+
+    def logout_user(self):
+        """Logout current user"""
+        if self.is_logged_in:
+            # Track logout event
+            self.analytics.track_event('logout', {
+                'user_email': self.current_user.get('email') if self.current_user else None
+            })
+            
+            # Update last login time
+            if self.current_user and self.current_user['email'] in self.users:
+                self.users[self.current_user['email']]['last_login'] = datetime.now().isoformat()
+                save_json(FILES['USERS'], self.users)
+            
+            logging.info(f"User logged out: {self.current_user.get('email') if self.current_user else 'Unknown'}")
+            
+            self.current_user = None
+            self.is_logged_in = False
+            self.session = SecureSession()  # Reset session
+            self.cart.user_cashback = 0  # Reset cart cashback
+            
+            # Cancel auto-logout timer
+            if self.auto_logout_timer:
+                self.after_cancel(self.auto_logout_timer)
+                self.auto_logout_timer = None
+            
+            # Update profile display
+            self.update_profile_display()
+            
+            self.notification_manager.show_notification(
+                "You have been logged out successfully.", 
+                "info"
+            )
+
+    def update_profile_display(self):
+        """Update the profile tab display based on login status"""
+        # Rebuild the entire profile tab to reflect login state
+        self.build_profile_tab()
+
+    def on_closing(self):
+        """Handle application closing with proper cleanup"""
+        try:
+            # Track app close
+            self.analytics.track_event('app_close')
+            
+            # Save analytics session
+            self.analytics.save_session()
+            
+            # Save any pending data
+            save_json(FILES['SETTINGS'], self.settings)
+            
+            logging.info("Application closed gracefully")
+            
+        except Exception as e:
+            logging.error(f"Error during application shutdown: {e}")
+        
+        finally:
+            self.destroy()
+
+    def show_progress_dialog(self, title, operation_func, *args, **kwargs):
+        """Show a progress dialog for long-running operations"""
+        progress_window = tk.Toplevel(self)
+        progress_window.title(title)
+        progress_window.geometry("400x150")
+        progress_window.transient(self)
+        progress_window.grab_set()
+        
+        # Center the window
+        progress_window.update_idletasks()
+        x = (progress_window.winfo_screenwidth() // 2) - (400 // 2)
+        y = (progress_window.winfo_screenheight() // 2) - (150 // 2)
+        progress_window.geometry(f"400x150+{x}+{y}")
+        
+        # Progress label
+        progress_label = tk.Label(progress_window, text="Processing...", font=("Segoe UI", 12))
+        progress_label.pack(pady=20)
+        
+        # Progress bar
+        progress_bar = ttk.Progressbar(progress_window, mode='indeterminate')
+        progress_bar.pack(pady=10, padx=50, fill=tk.X)
+        progress_bar.start()
+        
+        # Cancel button
+        cancelled = tk.BooleanVar()
+        cancel_btn = tk.Button(
+            progress_window, 
+            text="Cancel", 
+            command=lambda: cancelled.set(True),
+            bg="#dc3545",
+            fg="white"
+        )
+        cancel_btn.pack(pady=10)
+        
+        def run_operation():
+            try:
+                start_time = time.time()
+                result = operation_func(*args, **kwargs)
+                duration = time.time() - start_time
+                
+                # Track performance
+                operation_name = operation_func.__name__
+                self.analytics.track_performance(operation_name, duration)
+                
+                progress_window.destroy()
+                return result
+                
+            except Exception as e:
+                logging.error(f"Operation failed: {e}")
+                progress_window.destroy()
+                self.notification_manager.show_notification(
+                    f"Operation failed: {str(e)}", 
+                    "error"
+                )
+                return None
+        
+        # Run operation in thread
+        def start_operation():
+            if not cancelled.get():
+                thread = threading.Thread(target=run_operation)
+                thread.daemon = True
+                thread.start()
+        
+        progress_window.after(100, start_operation)
+        return progress_window
 
     def nav_button(self, parent, text, tab, side=tk.LEFT):
         btn = tk.Button(parent, text=text, font=("Segoe UI", 10, "bold"), bg="#0d6efd", fg="white",
@@ -1287,9 +2191,14 @@ class MainApp(tk.Tk):
                 details_text = []
                 if item['product'].get('discount_percent', 0) > 0:
                     details_text.append(f"Discount: {item['product'].get('discount_percent', 0)}%")
-                details_text.append(f"GST: {item['product'].get('gst_rate', 0)*100:.0f}%")
+                details_text.append(f"GST: {item.get('gst_rate', 0):.1f}%")
                 if item.get('cashback_amount', 0) > 0:
                     details_text.append(f"Cashback: ₹{item['cashback_amount']:.2f}")
+                
+                # Show price breakdown
+                base_price_text = f"Base: ₹{item['discounted_base_price']:.2f}"
+                gst_text = f"GST: ₹{item['line_gst_amount']:.2f}"
+                details_text.extend([base_price_text, gst_text])
                 
                 if details_text:
                     tk.Label(info_frame, text=" | ".join(details_text), 
@@ -1329,12 +2238,41 @@ class MainApp(tk.Tk):
             summary_frame = tk.Frame(cart_frame, bg="white", relief=tk.RAISED, bd=2)
             summary_frame.pack(fill=tk.X, pady=10)
             tk.Label(summary_frame, text="Bill Summary", font=("Segoe UI", 14, "bold"), bg="white", fg="#0d6efd").pack(anchor="w", padx=10, pady=(10, 2))
+            
+            # Subtotal
             tk.Label(summary_frame, text=f"Subtotal (before GST): ₹{details['subtotal_pre_gst']:.2f}", font=("Segoe UI", 11), bg="white").pack(anchor="w", padx=20)
-            tk.Label(summary_frame, text=f"Total GST: ₹{details['total_gst']:.2f}", font=("Segoe UI", 11), bg="white").pack(anchor="w", padx=20)
-            tk.Label(summary_frame, text=f"Delivery Charge: ₹{details['delivery_charge']:.2f}", font=("Segoe UI", 11), bg="white").pack(anchor="w", padx=20)
+            
+            # GST Breakdown
+            if details['total_gst'] > 0:
+                gst_frame = tk.Frame(summary_frame, bg="white")
+                gst_frame.pack(fill=tk.X, padx=20, pady=2)
+                
+                tk.Label(gst_frame, text="GST Breakdown:", font=("Segoe UI", 11, "bold"), bg="white", fg="#0d6efd").pack(anchor="w")
+                
+                # Show CGST, SGST, IGST breakdown
+                if details['total_cgst'] > 0:
+                    tk.Label(gst_frame, text=f"  CGST: ₹{details['total_cgst']:.2f}", font=("Segoe UI", 10), bg="white", fg="#666").pack(anchor="w", padx=20)
+                if details['total_sgst'] > 0:
+                    tk.Label(gst_frame, text=f"  SGST: ₹{details['total_sgst']:.2f}", font=("Segoe UI", 10), bg="white", fg="#666").pack(anchor="w", padx=20)
+                if details['total_igst'] > 0:
+                    tk.Label(gst_frame, text=f"  IGST: ₹{details['total_igst']:.2f}", font=("Segoe UI", 10), bg="white", fg="#666").pack(anchor="w", padx=20)
+                
+                tk.Label(gst_frame, text=f"Total GST: ₹{details['total_gst']:.2f}", font=("Segoe UI", 11, "bold"), bg="white", fg="#0d6efd").pack(anchor="w")
+            
+            # Delivery charges
+            if details['delivery_charge'] > 0:
+                delivery_frame = tk.Frame(summary_frame, bg="white")
+                delivery_frame.pack(fill=tk.X, padx=20, pady=2)
+                tk.Label(delivery_frame, text=f"Delivery Charge: ₹{details['delivery_charge']:.2f}", font=("Segoe UI", 11), bg="white").pack(anchor="w")
+                if details.get('delivery_gst', 0) > 0:
+                    tk.Label(delivery_frame, text=f"Delivery GST ({details.get('delivery_gst_rate', 18):.0f}%): ₹{details['delivery_gst']:.2f}", font=("Segoe UI", 10), bg="white", fg="#666").pack(anchor="w", padx=20)
+            
+            # Cashback
             if details['total_cashback'] > 0:
                 tk.Label(summary_frame, text=f"Total Cashback: ₹{details['total_cashback']:.2f}", font=("Segoe UI", 11, "bold"), bg="white", fg="#fd7e14").pack(anchor="w", padx=20)
-            tk.Label(summary_frame, text=f"Grand Total: ₹{details['grand_total']:.2f}", font=("Segoe UI", 13, "bold"), bg="white", fg="#198754").pack(anchor="w", padx=20, pady=(0, 10))
+            
+            # Grand total
+            tk.Label(summary_frame, text=f"Grand Total: ₹{details['grand_total']:.2f}", font=("Segoe UI", 13, "bold"), bg="white", fg="#198754").pack(anchor="w", padx=20, pady=(5, 10))
 
             # --- GST Invoice Section ---
             invoice_frame = tk.Frame(cart_frame, bg="white", relief=tk.RIDGE, bd=2)
@@ -1436,12 +2374,250 @@ class MainApp(tk.Tk):
         tk.Label(self.profile_tab, text="User Profile", font=("Segoe UI", 22, "bold"),
                 bg="#f7f9fa", fg="#0d6efd").pack(pady=20)
         
-        profile_frame = tk.Frame(self.profile_tab, bg="white", relief=tk.RAISED, bd=2)
-        profile_frame.pack(padx=50, pady=20, fill=tk.X)
+        # Create a notebook widget for profile tabs
+        profile_notebook = ttk.Notebook(self.profile_tab)
+        profile_notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
-        tk.Label(profile_frame, text="👤", font=("Segoe UI", 50), bg="white").pack(pady=10)
-        tk.Label(profile_frame, text="Guest User", font=("Segoe UI", 18, "bold"), bg="white").pack()
-        tk.Label(profile_frame, text="guest@example.com", font=("Segoe UI", 12), bg="white", fg="#666").pack(pady=5)
+        # Tab 1: User Info
+        user_info_tab = tk.Frame(profile_notebook, bg="white")
+        profile_notebook.add(user_info_tab, text="👤 User Info")
+        
+        # Tab 2: Login/Register
+        login_tab = tk.Frame(profile_notebook, bg="white")
+        profile_notebook.add(login_tab, text="🔐 Login")
+        
+        # Build User Info Tab
+        self.build_user_info_tab(user_info_tab)
+        
+        # Build Login Tab
+        self.build_login_tab(login_tab)
+    
+    def build_user_info_tab(self, parent):
+        # User avatar and info
+        user_frame = tk.Frame(parent, bg="white", relief=tk.RAISED, bd=2)
+        user_frame.pack(padx=20, pady=20, fill=tk.X)
+        
+        tk.Label(user_frame, text="👤", font=("Segoe UI", 50), bg="white").pack(pady=10)
+        
+        if self.is_logged_in and self.current_user:
+            # Show logged-in user info
+            tk.Label(user_frame, text=self.current_user['name'], font=("Segoe UI", 18, "bold"), bg="white").pack()
+            tk.Label(user_frame, text=self.current_user['email'], font=("Segoe UI", 12), bg="white", fg="#666").pack(pady=5)
+            tk.Label(user_frame, text=f"Member since: {self.current_user.get('join_date', 'N/A')}", 
+                    font=("Segoe UI", 10), bg="white", fg="#888").pack(pady=2)
+            
+            # Logout button
+            logout_btn = tk.Button(user_frame, text="🚪 Logout", font=("Segoe UI", 12, "bold"),
+                                 bg="#dc3545", fg="white", command=self.logout_user)
+            logout_btn.pack(pady=10)
+            add_hover_effect(logout_btn, "#dc3545", "white", "#c82333", "white")
+            
+        else:
+            # Show guest user info
+            tk.Label(user_frame, text="Guest User", font=("Segoe UI", 18, "bold"), bg="white").pack()
+            tk.Label(user_frame, text="guest@example.com", font=("Segoe UI", 12), bg="white", fg="#666").pack(pady=5)
+            tk.Label(user_frame, text="Please login to access personalized features", 
+                    font=("Segoe UI", 10), bg="white", fg="#888").pack(pady=2)
+        
+        # Account stats (if logged in)
+        if self.is_logged_in and self.current_user:
+            stats_frame = tk.Frame(parent, bg="white", relief=tk.RAISED, bd=2)
+            stats_frame.pack(padx=20, pady=10, fill=tk.X)
+            
+            tk.Label(stats_frame, text="Account Statistics", font=("Segoe UI", 16, "bold"), 
+                    bg="white", fg="#0d6efd").pack(pady=10)
+            
+            # Show user's banking accounts
+            user_accounts = [acc for acc_num, acc in self.accounts.items() 
+                           if acc.get('owner_email') == self.current_user['email']]
+            
+            tk.Label(stats_frame, text=f"Banking Accounts: {len(user_accounts)}", 
+                    font=("Segoe UI", 12), bg="white").pack(pady=2)
+            
+            total_balance = sum(acc.get('balance', 0) for acc in user_accounts)
+            tk.Label(stats_frame, text=f"Total Balance: ₹{total_balance:.2f}", 
+                    font=("Segoe UI", 12, "bold"), bg="white", fg="#28a745").pack(pady=2)
+    
+    def build_login_tab(self, parent):
+        # Create a notebook for Login and Register
+        auth_notebook = ttk.Notebook(parent)
+        auth_notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Login frame
+        login_frame = tk.Frame(auth_notebook, bg="white")
+        auth_notebook.add(login_frame, text="Login")
+        
+        # Register frame
+        register_frame = tk.Frame(auth_notebook, bg="white")
+        auth_notebook.add(register_frame, text="Register")
+        
+        # Build login form
+        self.build_login_form(login_frame)
+        
+        # Build register form
+        self.build_register_form(register_frame)
+    
+    def build_login_form(self, parent):
+        tk.Label(parent, text="� User Login", font=("Segoe UI", 20, "bold"), 
+                bg="white", fg="#0d6efd").pack(pady=20)
+        
+        # Login form
+        form_frame = tk.Frame(parent, bg="white")
+        form_frame.pack(pady=20)
+        
+        # Email field
+        tk.Label(form_frame, text="Email:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=0, column=0, sticky="w", pady=5)
+        self.login_email_var = tk.StringVar()
+        email_entry = tk.Entry(form_frame, textvariable=self.login_email_var, font=("Segoe UI", 12), width=25)
+        email_entry.grid(row=0, column=1, padx=10, pady=5)
+        
+        # Password field
+        tk.Label(form_frame, text="Password:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=1, column=0, sticky="w", pady=5)
+        self.login_password_var = tk.StringVar()
+        password_entry = tk.Entry(form_frame, textvariable=self.login_password_var, font=("Segoe UI", 12), width=25, show="*")
+        password_entry.grid(row=1, column=1, padx=10, pady=5)
+        
+        # Login button
+        login_btn = tk.Button(form_frame, text="🔑 Login", font=("Segoe UI", 12, "bold"),
+                             bg="#28a745", fg="white", command=self.login_user_form, padx=20, pady=8)
+        login_btn.grid(row=2, column=0, columnspan=2, pady=20)
+        add_hover_effect(login_btn, "#28a745", "white", "#218838", "white")
+        
+        # Demo credentials info
+        demo_frame = tk.Frame(parent, bg="#f8f9fa", relief=tk.RAISED, bd=1)
+        demo_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        tk.Label(demo_frame, text="Demo Credentials", font=("Segoe UI", 12, "bold"), 
+                bg="#f8f9fa", fg="#495057").pack(pady=5)
+        tk.Label(demo_frame, text="Email: demo@example.com", font=("Segoe UI", 10), 
+                bg="#f8f9fa", fg="#6c757d").pack()
+        tk.Label(demo_frame, text="Password: demo123", font=("Segoe UI", 10), 
+                bg="#f8f9fa", fg="#6c757d").pack(pady=(0, 5))
+    
+    def build_register_form(self, parent):
+        tk.Label(parent, text="📝 Create Account", font=("Segoe UI", 20, "bold"), 
+                bg="white", fg="#0d6efd").pack(pady=20)
+        
+        # Register form
+        form_frame = tk.Frame(parent, bg="white")
+        form_frame.pack(pady=20)
+        
+        # Name field
+        tk.Label(form_frame, text="Full Name:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=0, column=0, sticky="w", pady=5)
+        self.register_name_var = tk.StringVar()
+        name_entry = tk.Entry(form_frame, textvariable=self.register_name_var, font=("Segoe UI", 12), width=25)
+        name_entry.grid(row=0, column=1, padx=10, pady=5)
+        
+        # Email field
+        tk.Label(form_frame, text="Email:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=1, column=0, sticky="w", pady=5)
+        self.register_email_var = tk.StringVar()
+        email_entry = tk.Entry(form_frame, textvariable=self.register_email_var, font=("Segoe UI", 12), width=25)
+        email_entry.grid(row=1, column=1, padx=10, pady=5)
+        
+        # Password field
+        tk.Label(form_frame, text="Password:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=2, column=0, sticky="w", pady=5)
+        self.register_password_var = tk.StringVar()
+        password_entry = tk.Entry(form_frame, textvariable=self.register_password_var, font=("Segoe UI", 12), width=25, show="*")
+        password_entry.grid(row=2, column=1, padx=10, pady=5)
+        
+        # Confirm Password field
+        tk.Label(form_frame, text="Confirm Password:", font=("Segoe UI", 12, "bold"), bg="white").grid(row=3, column=0, sticky="w", pady=5)
+        self.register_confirm_var = tk.StringVar()
+        confirm_entry = tk.Entry(form_frame, textvariable=self.register_confirm_var, font=("Segoe UI", 12), width=25, show="*")
+        confirm_entry.grid(row=3, column=1, padx=10, pady=5)
+        
+        # Register button
+        register_btn = tk.Button(form_frame, text="📝 Create Account", font=("Segoe UI", 12, "bold"),
+                               bg="#007bff", fg="white", command=self.register_user_form, padx=20, pady=8)
+        register_btn.grid(row=4, column=0, columnspan=2, pady=20)
+        add_hover_effect(register_btn, "#007bff", "white", "#0056b3", "white")
+    
+    def login_user_form(self):
+        """Handle login form submission"""
+        email = self.login_email_var.get().strip()
+        password = self.login_password_var.get().strip()
+        
+        if not email or not password:
+            self.notification_manager.show_notification(
+                "Please fill in all fields!", 
+                "error"
+            )
+            return
+        
+        # Use the secure login method
+        if self.login_user(email, password):
+            # Clear form on successful login
+            self.login_email_var.set("")
+            self.login_password_var.set("")
+            # Refresh the profile tab
+            self.build_profile_tab()
+    
+    def register_user_form(self):
+        """Handle registration form submission"""
+        name = self.register_name_var.get().strip()
+        email = self.register_email_var.get().strip()
+        password = self.register_password_var.get().strip()
+        confirm = self.register_confirm_var.get().strip()
+        
+        if not all([name, email, password, confirm]):
+            self.notification_manager.show_notification(
+                "Please fill in all fields!", 
+                "error"
+            )
+            return
+        
+        if password != confirm:
+            self.notification_manager.show_notification(
+                "Passwords do not match!", 
+                "error"
+            )
+            return
+        
+        # Use the secure registration method
+        if self.register_user(email, password, name):
+            # Clear form on successful registration
+            self.register_name_var.set("")
+            self.register_email_var.set("")
+            self.register_password_var.set("")
+            self.register_confirm_var.set("")
+            return
+        
+        if password != confirm:
+            messagebox.showerror("Error", "Passwords do not match!")
+            return
+        
+        if len(password) < 6:
+            messagebox.showerror("Error", "Password must be at least 6 characters long!")
+            return
+        
+        if email in self.users:
+            messagebox.showerror("Error", "Email already registered!")
+            return
+        
+        # Register new user
+        self.users[email] = {
+            'name': name,
+            'email': email,
+            'password': password,
+            'join_date': str(date.today())
+        }
+        
+        # Save users to file
+        save_json(FILES['USERS'], self.users)
+        
+        messagebox.showinfo("Success", "Account created successfully! You can now login.")
+        
+        # Clear form fields
+        self.register_name_var.set("")
+        self.register_email_var.set("")
+        self.register_password_var.set("")
+        self.register_confirm_var.set("")
+    
+    def logout_user(self):
+        self.current_user = None
+        self.is_logged_in = False
+        messagebox.showinfo("Logged Out", "You have been logged out successfully!")
+        self.build_profile_tab()  # Refresh the profile tab
 
     def build_feedback_tab(self):
         for widget in self.feedback_tab.winfo_children():
@@ -1657,7 +2833,8 @@ class MainApp(tk.Tk):
                         "name": name,
                         "balance": deposit,
                         "type": acc_type,
-                        "created_date": str(date.today())
+                        "created_date": str(date.today()),
+                        "owner_email": self.current_user['email'] if self.is_logged_in else "guest@example.com"
                     }
                     save_json(FILES['ACCOUNTS'], self.accounts)
                     messagebox.showinfo("Success", "Account created successfully!")
@@ -1775,42 +2952,236 @@ class MainApp(tk.Tk):
         self.build_cart_tab()
 
     def checkout(self):
+        """Enhanced checkout process with analytics and notifications"""
         if not self.cart.items:
-            messagebox.showwarning("Warning", "Cart is empty!")
+            self.notification_manager.show_notification(
+                "Your cart is empty! Add some products first.", 
+                "warning"
+            )
             return
         
         details = self.cart.get_details(self.products)
-        result = messagebox.askyesno("Checkout", 
-            f"Total amount: ₹{details['grand_total']:.2f}\nProceed with checkout?")
         
-        if result:
-            # Save order to history
+        # Show modern checkout confirmation
+        checkout_window = tk.Toplevel(self)
+        checkout_window.title("Checkout Confirmation")
+        checkout_window.geometry("500x400")
+        checkout_window.transient(self)
+        checkout_window.grab_set()
+        
+        # Center the window
+        checkout_window.update_idletasks()
+        x = (checkout_window.winfo_screenwidth() // 2) - (500 // 2)
+        y = (checkout_window.winfo_screenheight() // 2) - (400 // 2)
+        checkout_window.geometry(f"500x400+{x}+{y}")
+        
+        # Header
+        header = tk.Frame(checkout_window, bg="#007bff", height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        
+        tk.Label(
+            header, 
+            text="🛒 Checkout Confirmation", 
+            font=("Segoe UI", 16, "bold"),
+            bg="#007bff", 
+            fg="white"
+        ).pack(expand=True)
+        
+        # Order summary
+        summary_frame = tk.Frame(checkout_window, bg="white", padx=20, pady=20)
+        summary_frame.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(
+            summary_frame, 
+            text="Order Summary", 
+            font=("Segoe UI", 14, "bold"),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Items list
+        items_frame = tk.Frame(summary_frame, bg="white")
+        items_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        for item in details['items']:
+            item_line = tk.Frame(items_frame, bg="white")
+            item_line.pack(fill=tk.X, pady=2)
+            
+            tk.Label(
+                item_line,
+                text=f"{item['product']['name']} x{item['quantity']}",
+                font=("Segoe UI", 10),
+                bg="white"
+            ).pack(side=tk.LEFT)
+            
+            tk.Label(
+                item_line,
+                text=f"₹{item['line_total']:.2f}",
+                font=("Segoe UI", 10, "bold"),
+                bg="white"
+            ).pack(side=tk.RIGHT)
+        
+        # Totals
+        totals_frame = tk.Frame(summary_frame, bg="#f8f9fa", padx=10, pady=10)
+        totals_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        total_items = [
+            ("Subtotal:", f"₹{details['subtotal_pre_gst']:.2f}"),
+        ]
+        
+        # Add GST breakdown if applicable
+        if details['total_cgst'] > 0:
+            total_items.append(("CGST:", f"₹{details['total_cgst']:.2f}"))
+        if details['total_sgst'] > 0:
+            total_items.append(("SGST:", f"₹{details['total_sgst']:.2f}"))
+        if details['total_igst'] > 0:
+            total_items.append(("IGST:", f"₹{details['total_igst']:.2f}"))
+        
+        total_items.extend([
+            ("Total GST:", f"₹{details['total_gst']:.2f}"),
+            ("Delivery:", f"₹{details['delivery_charge']:.2f}")
+        ])
+        
+        # Add delivery GST if applicable
+        if details.get('delivery_gst', 0) > 0:
+            total_items.append(("Delivery GST:", f"₹{details['delivery_gst']:.2f}"))
+        
+        if details['total_cashback'] > 0:
+            total_items.append(("Cashback:", f"-₹{details['total_cashback']:.2f}"))
+        
+        for label, value in total_items:
+            row = tk.Frame(totals_frame, bg="#f8f9fa")
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=label, bg="#f8f9fa", font=("Segoe UI", 10)).pack(side=tk.LEFT)
+            tk.Label(row, text=value, bg="#f8f9fa", font=("Segoe UI", 10, "bold")).pack(side=tk.RIGHT)
+        
+        # Grand total
+        grand_total_frame = tk.Frame(totals_frame, bg="#28a745", padx=5, pady=5)
+        grand_total_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        tk.Label(
+            grand_total_frame, 
+            text="Total:", 
+            bg="#28a745", 
+            fg="white",
+            font=("Segoe UI", 12, "bold")
+        ).pack(side=tk.LEFT)
+        
+        tk.Label(
+            grand_total_frame, 
+            text=f"₹{details['grand_total']:.2f}", 
+            bg="#28a745", 
+            fg="white",
+            font=("Segoe UI", 12, "bold")
+        ).pack(side=tk.RIGHT)
+        
+        # Buttons
+        button_frame = tk.Frame(checkout_window, bg="white", pady=20)
+        button_frame.pack(fill=tk.X)
+        
+        def confirm_order():
+            checkout_window.destroy()
+            self._process_order(details)
+        
+        def cancel_order():
+            checkout_window.destroy()
+        
+        # Confirm button
+        confirm_btn = ModernUI.create_gradient_button(
+            button_frame,
+            "✅ Confirm Order",
+            confirm_order,
+            bg="#28a745",
+            hover_bg="#218838"
+        )
+        confirm_btn.pack(side=tk.RIGHT, padx=(5, 20))
+        
+        # Cancel button
+        cancel_btn = ModernUI.create_gradient_button(
+            button_frame,
+            "❌ Cancel",
+            cancel_order,
+            bg="#dc3545",
+            hover_bg="#c82333"
+        )
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+
+    def _process_order(self, details):
+        """Process the order with analytics tracking"""
+        try:
+            # Create order record
             order = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "customer": self.current_user['email'] if self.is_logged_in else "Guest",
+                "customer_name": self.current_user['name'] if self.is_logged_in else "Guest User",
                 "items": [
                     {
                         "product_id": item['product']['product_id'],
                         "name": item['product']['name'],
                         "quantity": item['quantity'],
-                        "price": item['price'],
-                        "discounted_price": item['discounted_price'],
+                        "original_price": item['original_price'],
+                        "base_price": item['base_price'],
+                        "discounted_base_price": item['discounted_base_price'],
+                        "gst_rate": item['gst_rate'],
+                        "line_subtotal": item['line_subtotal'],
+                        "line_gst_amount": item['line_gst_amount'],
+                        "cgst_amount": item['cgst_amount'],
+                        "sgst_amount": item['sgst_amount'],
+                        "igst_amount": item['igst_amount'],
                         "line_total": item['line_total'],
-                        "gst_amount": item['gst_amount']
+                        "cashback_amount": item['cashback_amount'],
+                        "price_inclusive_gst": item['price_inclusive_gst']
                     }
                     for item in details['items']
                 ],
+                "subtotal_pre_gst": details['subtotal_pre_gst'],
+                "total_gst": details['total_gst'],
+                "total_cgst": details['total_cgst'],
+                "total_sgst": details['total_sgst'],
+                "total_igst": details['total_igst'],
+                "delivery_charge": details['delivery_charge'],
+                "delivery_gst": details.get('delivery_gst', 0),
+                "delivery_gst_rate": details.get('delivery_gst_rate', 18),
+                "total_cashback": details['total_cashback'],
                 "grand_total": details['grand_total'],
-                "status": "Pending",
-                "customer": "Guest"
+                "status": "Confirmed",
+                "order_id": f"ORD{int(time.time())}"
             }
+            
+            # Save to history
             history = load_json(FILES['HISTORY'], [])
             history.append(order)
             save_json(FILES['HISTORY'], history)
-
+            
+            # Track purchase analytics
+            self.analytics.track_event('purchase', {
+                'order_id': order['order_id'],
+                'total_amount': details['grand_total'],
+                'item_count': len(details['items']),
+                'customer': order['customer']
+            })
+            
+            # Clear cart
             self.cart.clear()
+            
+            # Refresh UI
             self.build_cart_tab()
             self.build_orders_tab()
-            messagebox.showinfo("Success", "Order placed successfully!")
+            
+            # Show success notification
+            self.notification_manager.show_notification(
+                f"Order {order['order_id']} placed successfully! Total: ₹{details['grand_total']:.2f}", 
+                "success"
+            )
+            
+            logging.info(f"Order placed: {order['order_id']} - ₹{details['grand_total']:.2f}")
+            
+        except Exception as e:
+            logging.error(f"Order processing failed: {e}")
+            self.notification_manager.show_notification(
+                "Failed to process order. Please try again.", 
+                "error"
+            )
 
     def submit_feedback(self, feedback):
         if feedback.strip():
@@ -2012,6 +3383,8 @@ class AdminWindow(tk.Toplevel):
         self.categories = categories
         self.shop_info = shop_info
         self.refresh_callback = refresh_callback
+        self.users = load_json(FILES['USERS'], {})  # Load users data
+        self.accounts = load_json(FILES['ACCOUNTS'], {})  # Load accounts data
 
         notebook = ttk.Notebook(self)
         notebook.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
@@ -2565,22 +3938,448 @@ class AdminWindow(tk.Toplevel):
     def build_users_tab(self):
         for widget in self.users_tab.winfo_children():
             widget.destroy()
-        tk.Label(self.users_tab, text="User Management", font=("Segoe UI", 18, "bold"), bg="#f7f9fa", fg="#0d6efd").pack(pady=10)
-        columns = ("User ID", "Name", "Email", "Phone", "Registered")
-        tree = ttk.Treeview(self.users_tab, columns=columns, show="headings", height=15)
+        
+        # Title
+        tk.Label(self.users_tab, text="User Management", font=("Segoe UI", 18, "bold"), 
+                bg="#f7f9fa", fg="#0d6efd").pack(pady=10)
+        
+        # Control buttons frame
+        control_frame = tk.Frame(self.users_tab, bg="#f7f9fa")
+        control_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        # Refresh button
+        refresh_btn = tk.Button(control_frame, text="🔄 Refresh", font=("Segoe UI", 11, "bold"),
+                               bg="#198754", fg="white", command=self.refresh_users_data)
+        refresh_btn.pack(side=tk.LEFT, padx=5)
+        add_hover_effect(refresh_btn, "#198754", "white", "#0d6efd", "white")
+        
+        # Add user button
+        add_user_btn = tk.Button(control_frame, text="➕ Add User", font=("Segoe UI", 11, "bold"),
+                                bg="#007bff", fg="white", command=self.add_new_user)
+        add_user_btn.pack(side=tk.LEFT, padx=5)
+        add_hover_effect(add_user_btn, "#007bff", "white", "#0056b3", "white")
+        
+        # Export users button
+        export_btn = tk.Button(control_frame, text="📄 Export Users", font=("Segoe UI", 11, "bold"),
+                              bg="#6c757d", fg="white", command=self.export_users)
+        export_btn.pack(side=tk.LEFT, padx=5)
+        add_hover_effect(export_btn, "#6c757d", "white", "#495057", "white")
+        
+        # Statistics frame
+        stats_frame = tk.LabelFrame(self.users_tab, text="User Statistics", 
+                                   font=("Segoe UI", 12, "bold"), bg="#f7f9fa", fg="#0d6efd")
+        stats_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        stats_inner = tk.Frame(stats_frame, bg="#f7f9fa")
+        stats_inner.pack(fill=tk.X, padx=10, pady=5)
+        
+        total_users = len(self.users)
+        today = str(date.today())
+        new_users_today = len([u for u in self.users.values() if u.get('join_date') == today])
+        
+        # Count users with banking accounts
+        users_with_accounts = 0
+        for email in self.users.keys():
+            if any(acc.get('owner_email') == email for acc in self.accounts.values()):
+                users_with_accounts += 1
+        
+        tk.Label(stats_inner, text=f"Total Users: {total_users}", 
+                font=("Segoe UI", 11), bg="#f7f9fa").pack(side=tk.LEFT, padx=20)
+        tk.Label(stats_inner, text=f"New Today: {new_users_today}", 
+                font=("Segoe UI", 11), bg="#f7f9fa").pack(side=tk.LEFT, padx=20)
+        tk.Label(stats_inner, text=f"With Bank Accounts: {users_with_accounts}", 
+                font=("Segoe UI", 11), bg="#f7f9fa").pack(side=tk.LEFT, padx=20)
+        
+        # Users table
+        table_frame = tk.Frame(self.users_tab, bg="#f7f9fa")
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        columns = ("Email", "Name", "Join Date", "Bank Accounts", "Total Balance", "Actions")
+        tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+        
+        # Configure columns
+        tree.heading("Email", text="Email Address")
+        tree.heading("Name", text="Full Name")
+        tree.heading("Join Date", text="Registration Date")
+        tree.heading("Bank Accounts", text="Bank Accounts")
+        tree.heading("Total Balance", text="Total Balance (₹)")
+        tree.heading("Actions", text="Actions")
+        
+        tree.column("Email", width=200)
+        tree.column("Name", width=150)
+        tree.column("Join Date", width=120)
+        tree.column("Bank Accounts", width=100)
+        tree.column("Total Balance", width=120)
+        tree.column("Actions", width=100)
+        
+        # Populate user data
+        for email, user_info in self.users.items():
+            # Calculate user's banking information
+            user_accounts = [acc for acc_num, acc in self.accounts.items() 
+                           if acc.get('owner_email') == email]
+            account_count = len(user_accounts)
+            total_balance = sum(acc.get('balance', 0) for acc in user_accounts)
+            
+            tree.insert("", tk.END, values=(
+                email,
+                user_info.get('name', 'N/A'),
+                user_info.get('join_date', 'N/A'),
+                account_count,
+                f"{total_balance:.2f}",
+                "Manage"
+            ))
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind double-click to manage user
+        tree.bind("<Double-1>", self.on_user_double_click)
+        
+        # Context menu for users
+        def show_user_context_menu(event):
+            try:
+                item = tree.selection()[0]
+                user_email = tree.item(item, "values")[0]
+                
+                context_menu = tk.Menu(self, tearoff=0)
+                context_menu.add_command(label="View Details", 
+                                       command=lambda: self.view_user_details(user_email))
+                context_menu.add_command(label="Edit User", 
+                                       command=lambda: self.edit_user(user_email))
+                context_menu.add_command(label="Reset Password", 
+                                       command=lambda: self.reset_user_password(user_email))
+                context_menu.add_separator()
+                context_menu.add_command(label="View Bank Accounts", 
+                                       command=lambda: self.view_user_accounts(user_email))
+                context_menu.add_separator()
+                context_menu.add_command(label="Delete User", 
+                                       command=lambda: self.delete_user(user_email))
+                
+                context_menu.post(event.x_root, event.y_root)
+            except IndexError:
+                pass
+        
+        tree.bind("<Button-3>", show_user_context_menu)  # Right-click
+    
+    def refresh_users_data(self):
+        """Refresh users and accounts data"""
+        self.users = load_json(FILES['USERS'], {})
+        self.accounts = load_json(FILES['ACCOUNTS'], {})
+        self.build_users_tab()
+    
+    def on_user_double_click(self, event):
+        """Handle double-click on user row"""
+        try:
+            item = event.widget.selection()[0]
+            user_email = event.widget.item(item, "values")[0]
+            self.view_user_details(user_email)
+        except IndexError:
+            pass
+    
+    def add_new_user(self):
+        """Add a new user dialog"""
+        add_window = tk.Toplevel(self)
+        add_window.title("Add New User")
+        add_window.geometry("400x300")
+        add_window.configure(bg="#f7f9fa")
+        add_window.grab_set()  # Make modal
+        
+        tk.Label(add_window, text="Add New User", font=("Segoe UI", 16, "bold"),
+                bg="#f7f9fa", fg="#0d6efd").pack(pady=20)
+        
+        # Form fields
+        form_frame = tk.Frame(add_window, bg="#f7f9fa")
+        form_frame.pack(pady=20)
+        
+        # Name field
+        tk.Label(form_frame, text="Full Name:", font=("Segoe UI", 12, "bold"), 
+                bg="#f7f9fa").grid(row=0, column=0, sticky="w", pady=5)
+        name_var = tk.StringVar()
+        tk.Entry(form_frame, textvariable=name_var, font=("Segoe UI", 12), 
+                width=25).grid(row=0, column=1, padx=10, pady=5)
+        
+        # Email field
+        tk.Label(form_frame, text="Email:", font=("Segoe UI", 12, "bold"), 
+                bg="#f7f9fa").grid(row=1, column=0, sticky="w", pady=5)
+        email_var = tk.StringVar()
+        tk.Entry(form_frame, textvariable=email_var, font=("Segoe UI", 12), 
+                width=25).grid(row=1, column=1, padx=10, pady=5)
+        
+        # Password field
+        tk.Label(form_frame, text="Password:", font=("Segoe UI", 12, "bold"), 
+                bg="#f7f9fa").grid(row=2, column=0, sticky="w", pady=5)
+        password_var = tk.StringVar()
+        tk.Entry(form_frame, textvariable=password_var, font=("Segoe UI", 12), 
+                width=25, show="*").grid(row=2, column=1, padx=10, pady=5)
+        
+        def save_user():
+            name = name_var.get().strip()
+            email = email_var.get().strip()
+            password = password_var.get().strip()
+            
+            if not all([name, email, password]):
+                messagebox.showerror("Error", "Please fill in all fields!")
+                return
+            
+            if email in self.users:
+                messagebox.showerror("Error", "Email already exists!")
+                return
+            
+            if len(password) < 6:
+                messagebox.showerror("Error", "Password must be at least 6 characters!")
+                return
+            
+            # Add user
+            self.users[email] = {
+                'name': name,
+                'email': email,
+                'password': password,
+                'join_date': str(date.today())
+            }
+            
+            save_json(FILES['USERS'], self.users)
+            messagebox.showinfo("Success", "User added successfully!")
+            add_window.destroy()
+            self.build_users_tab()
+        
+        # Buttons
+        btn_frame = tk.Frame(form_frame, bg="#f7f9fa")
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=20)
+        
+        save_btn = tk.Button(btn_frame, text="Add User", font=("Segoe UI", 12, "bold"),
+                           bg="#28a745", fg="white", command=save_user)
+        save_btn.pack(side=tk.LEFT, padx=10)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 12, "bold"),
+                             bg="#6c757d", fg="white", command=add_window.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=10)
+    
+    def view_user_details(self, email):
+        """View detailed user information"""
+        if email not in self.users:
+            messagebox.showerror("Error", "User not found!")
+            return
+        
+        user = self.users[email]
+        details_window = tk.Toplevel(self)
+        details_window.title(f"User Details - {user['name']}")
+        details_window.geometry("500x400")
+        details_window.configure(bg="#f7f9fa")
+        
+        # User info
+        info_frame = tk.LabelFrame(details_window, text="User Information", 
+                                  font=("Segoe UI", 12, "bold"), bg="#f7f9fa", fg="#0d6efd")
+        info_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        tk.Label(info_frame, text=f"Name: {user['name']}", font=("Segoe UI", 11), 
+                bg="#f7f9fa").pack(anchor="w", padx=10, pady=2)
+        tk.Label(info_frame, text=f"Email: {user['email']}", font=("Segoe UI", 11), 
+                bg="#f7f9fa").pack(anchor="w", padx=10, pady=2)
+        tk.Label(info_frame, text=f"Join Date: {user.get('join_date', 'N/A')}", 
+                font=("Segoe UI", 11), bg="#f7f9fa").pack(anchor="w", padx=10, pady=2)
+        
+        # Banking info
+        bank_frame = tk.LabelFrame(details_window, text="Banking Information", 
+                                  font=("Segoe UI", 12, "bold"), bg="#f7f9fa", fg="#0d6efd")
+        bank_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        user_accounts = [(acc_num, acc) for acc_num, acc in self.accounts.items() 
+                        if acc.get('owner_email') == email]
+        
+        if user_accounts:
+            columns = ("Account #", "Type", "Balance")
+            tree = ttk.Treeview(bank_frame, columns=columns, show="headings", height=8)
+            for col in columns:
+                tree.heading(col, text=col)
+                tree.column(col, width=120)
+            
+            total_balance = 0
+            for acc_num, acc in user_accounts:
+                balance = acc.get('balance', 0)
+                total_balance += balance
+                tree.insert("", tk.END, values=(
+                    acc_num,
+                    acc.get('type', 'N/A'),
+                    f"₹{balance:.2f}"
+                ))
+            
+            tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
+            tk.Label(bank_frame, text=f"Total Balance: ₹{total_balance:.2f}", 
+                    font=("Segoe UI", 12, "bold"), bg="#f7f9fa", fg="#28a745").pack(pady=5)
+        else:
+            tk.Label(bank_frame, text="No banking accounts found", 
+                    font=("Segoe UI", 11), bg="#f7f9fa", fg="#666").pack(pady=20)
+    
+    def edit_user(self, email):
+        """Edit user information"""
+        if email not in self.users:
+            messagebox.showerror("Error", "User not found!")
+            return
+        
+        user = self.users[email]
+        edit_window = tk.Toplevel(self)
+        edit_window.title(f"Edit User - {user['name']}")
+        edit_window.geometry("400x250")
+        edit_window.configure(bg="#f7f9fa")
+        edit_window.grab_set()
+        
+        tk.Label(edit_window, text="Edit User Information", font=("Segoe UI", 16, "bold"),
+                bg="#f7f9fa", fg="#0d6efd").pack(pady=20)
+        
+        # Form fields
+        form_frame = tk.Frame(edit_window, bg="#f7f9fa")
+        form_frame.pack(pady=20)
+        
+        # Name field
+        tk.Label(form_frame, text="Full Name:", font=("Segoe UI", 12, "bold"), 
+                bg="#f7f9fa").grid(row=0, column=0, sticky="w", pady=5)
+        name_var = tk.StringVar(value=user['name'])
+        tk.Entry(form_frame, textvariable=name_var, font=("Segoe UI", 12), 
+                width=25).grid(row=0, column=1, padx=10, pady=5)
+        
+        # Email field (readonly)
+        tk.Label(form_frame, text="Email:", font=("Segoe UI", 12, "bold"), 
+                bg="#f7f9fa").grid(row=1, column=0, sticky="w", pady=5)
+        tk.Label(form_frame, text=email, font=("Segoe UI", 12), 
+                bg="#f7f9fa", fg="#666").grid(row=1, column=1, sticky="w", padx=10, pady=5)
+        
+        def save_changes():
+            new_name = name_var.get().strip()
+            if not new_name:
+                messagebox.showerror("Error", "Name cannot be empty!")
+                return
+            
+            self.users[email]['name'] = new_name
+            save_json(FILES['USERS'], self.users)
+            messagebox.showinfo("Success", "User information updated!")
+            edit_window.destroy()
+            self.build_users_tab()
+        
+        # Buttons
+        btn_frame = tk.Frame(form_frame, bg="#f7f9fa")
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=20)
+        
+        save_btn = tk.Button(btn_frame, text="Save Changes", font=("Segoe UI", 12, "bold"),
+                           bg="#28a745", fg="white", command=save_changes)
+        save_btn.pack(side=tk.LEFT, padx=10)
+        
+        cancel_btn = tk.Button(btn_frame, text="Cancel", font=("Segoe UI", 12, "bold"),
+                             bg="#6c757d", fg="white", command=edit_window.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=10)
+    
+    def reset_user_password(self, email):
+        """Reset user password"""
+        if email not in self.users:
+            messagebox.showerror("Error", "User not found!")
+            return
+        
+        new_password = simpledialog.askstring("Reset Password", 
+                                            f"Enter new password for {email}:", show="*")
+        if new_password and len(new_password) >= 6:
+            self.users[email]['password'] = new_password
+            save_json(FILES['USERS'], self.users)
+            messagebox.showinfo("Success", "Password reset successfully!")
+        elif new_password:
+            messagebox.showerror("Error", "Password must be at least 6 characters!")
+    
+    def view_user_accounts(self, email):
+        """View user's banking accounts in detail"""
+        user_accounts = [(acc_num, acc) for acc_num, acc in self.accounts.items() 
+                        if acc.get('owner_email') == email]
+        
+        if not user_accounts:
+            messagebox.showinfo("Info", f"No banking accounts found for {email}")
+            return
+        
+        accounts_window = tk.Toplevel(self)
+        accounts_window.title(f"Banking Accounts - {email}")
+        accounts_window.geometry("600x400")
+        accounts_window.configure(bg="#f7f9fa")
+        
+        tk.Label(accounts_window, text=f"Banking Accounts for {email}", 
+                font=("Segoe UI", 16, "bold"), bg="#f7f9fa", fg="#0d6efd").pack(pady=10)
+        
+        columns = ("Account Number", "Type", "Balance", "Created Date")
+        tree = ttk.Treeview(accounts_window, columns=columns, show="headings", height=12)
         for col in columns:
             tree.heading(col, text=col)
-            tree.column(col, width=120)
-        users = load_json(FILES['ACCOUNTS'], {})
-        for uid, info in users.items():
+            tree.column(col, width=140)
+        
+        total_balance = 0
+        for acc_num, acc in user_accounts:
+            balance = acc.get('balance', 0)
+            total_balance += balance
             tree.insert("", tk.END, values=(
-                uid,
-                info['name'],
-                info.get('email', ''),
-                info.get('phone', ''),
-                info['created_date']
+                acc_num,
+                acc.get('type', 'N/A'),
+                f"₹{balance:.2f}",
+                acc.get('created_date', 'N/A')
             ))
+        
         tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        tk.Label(accounts_window, text=f"Total Balance: ₹{total_balance:.2f}", 
+                font=("Segoe UI", 14, "bold"), bg="#f7f9fa", fg="#28a745").pack(pady=10)
+    
+    def delete_user(self, email):
+        """Delete a user account"""
+        if email not in self.users:
+            messagebox.showerror("Error", "User not found!")
+            return
+        
+        # Check if user has banking accounts
+        user_accounts = [acc_num for acc_num, acc in self.accounts.items() 
+                        if acc.get('owner_email') == email]
+        
+        confirm_msg = f"Are you sure you want to delete user {email}?"
+        if user_accounts:
+            confirm_msg += f"\n\nWarning: This user has {len(user_accounts)} banking account(s). "
+            confirm_msg += "These accounts will become orphaned!"
+        
+        if messagebox.askyesno("Confirm Delete", confirm_msg):
+            del self.users[email]
+            save_json(FILES['USERS'], self.users)
+            messagebox.showinfo("Success", "User deleted successfully!")
+            self.build_users_tab()
+    
+    def export_users(self):
+        """Export users data to CSV"""
+        import csv
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Export Users Data"
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(["Email", "Name", "Join Date", "Bank Accounts", "Total Balance"])
+                    
+                    for email, user in self.users.items():
+                        user_accounts = [acc for acc in self.accounts.values() 
+                                       if acc.get('owner_email') == email]
+                        account_count = len(user_accounts)
+                        total_balance = sum(acc.get('balance', 0) for acc in user_accounts)
+                        
+                        writer.writerow([
+                            email,
+                            user.get('name', 'N/A'),
+                            user.get('join_date', 'N/A'),
+                            account_count,
+                            total_balance
+                        ])
+                
+                messagebox.showinfo("Success", f"Users data exported to {filename}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export data: {str(e)}")
 
     def build_shop_tab(self):
         for widget in self.shop_tab.winfo_children():

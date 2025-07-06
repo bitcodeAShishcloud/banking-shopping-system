@@ -1,177 +1,228 @@
 # Ashish's Online Banking & Shopping System
 
-A comprehensive desktop application built with Python and Tkinter that combines banking services with an e-commerce shopping platform.
+A comprehensive Python/Tkinter-based application combining banking and e-commerce functionality with modern security features, user management, and analytics.
 
 ## 🚀 Features
 
-### Banking Services
-- **Account Management**: Create and manage bank accounts
-- **Money Transfers**: Transfer funds between accounts
-- **Transaction History**: View detailed transaction records
-- **Cash Operations**: Deposit and withdraw cash
-- **Balance Inquiry**: Check account balances
+### Core Functionality
+- **Shopping Cart**: Advanced cart system with product management, discounts, GST calculations, and cashback
+- **Banking System**: Account management, transactions, balance tracking
+- **User Authentication**: Secure login/registration with password hashing and session management
+- **Admin Panel**: Comprehensive user and system management
+- **Order Management**: Complete order processing with history tracking
+- **Product Catalog**: Category-based product organization
+- **Feedback System**: Customer feedback collection and management
 
-### Shopping Platform
-- **Product Catalog**: Browse products with images and details
-- **Shopping Cart**: Add/remove items with quantity management
-- **Order Management**: Track order history and status
-- **GST Calculations**: Automatic tax calculations with invoice generation
-- **Cashback System**: Earn cashback on purchases
-- **Multiple Payment Options**: Integrated with banking system
+### Security Enhancements ✅
+- **Password Hashing**: PBKDF2-based secure password storage
+- **Session Management**: Automatic logout, session tokens, activity tracking
+- **Rate Limiting**: Protection against brute force attacks
+- **Account Lockout**: Temporary lockout after failed login attempts
+- **Input Validation**: Email validation, password strength requirements
+- **Audit Logging**: Comprehensive logging of user actions and system events
 
-### Admin Panel
-- **Product Management**: Add, edit, delete products with multiple photos
-- **Category Management**: Organize products into categories
-- **User Management**: Manage customer accounts
-- **Order Tracking**: Monitor all orders and transactions
-- **Reporting**: Generate sales and revenue reports
-- **Data Backup**: Backup and restore system data
+### Modern UI/UX ✅
+- **Notification System**: In-app notifications for user feedback
+- **Modern Components**: Gradient buttons, card layouts, modern entry fields
+- **Progress Dialogs**: Loading indicators for long operations
+- **Responsive Design**: Improved layout and styling
+- **Hover Effects**: Interactive UI elements with visual feedback
+- **Dark Mode Support**: Toggle between light and dark themes
 
-### Additional Features
-- **Dark Mode**: Toggle between light and dark themes
-- **Multi-language Support**: English, Hindi, Marathi
-- **AI Chat Assistant**: Built-in help system
-- **Responsive UI**: Modern and intuitive interface
-- **Data Persistence**: JSON-based data storage
+### Analytics & Performance ✅
+- **User Analytics**: Track user behavior, login patterns, purchase history
+- **Performance Monitoring**: Operation timing and optimization
+- **Caching System**: Improved application performance
+- **Background Operations**: Threading for non-blocking operations
+- **Memory Management**: Efficient data handling and cleanup
+
+### Advanced Features
+- **Multi-user Support**: Role-based access (customer, admin)
+- **Cashback System**: Per-user and per-product cashback tracking
+- **Export Functionality**: CSV export for reports and data
+- **Backup & Recovery**: Automatic data backup and recovery
+- **Error Handling**: Graceful error handling with user feedback
 
 ## 📋 Requirements
 
 - Python 3.7 or higher
 - Pillow (PIL) for image handling
-- tkinter (usually comes with Python)
+- Tkinter (usually included with Python)
 
 ## 🛠️ Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/banking-shopping-system.git
-   cd banking-shopping-system
-   ```
+### Automatic Installation (Windows)
+1. Run `install_dependencies.bat` to install all required dependencies
+2. Run `run_app.bat` to start the application
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Manual Installation
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-3. **Run the application**
-   ```bash
-   python shopping_cart_and_banking-system.py
-   ```
-
-## 📁 Project Structure
-
-```
-banking-shopping-system/
-├── shopping_cart_and_banking-system.py  # Main application file
-├── requirements.txt                     # Python dependencies
-├── README.md                           # Project documentation
-├── LICENSE                             # License file
-├── .gitignore                          # Git ignore rules
-├── data/                               # Data storage directory
-│   ├── products.json                   # Product catalog
-│   ├── accounts.json                   # User accounts
-│   ├── transactions.json               # Transaction history
-│   ├── categories.json                 # Product categories
-│   ├── history.json                    # Order history
-│   ├── settings.json                   # Application settings
-│   └── feedback.txt                    # User feedback
-├── images/                             # Product images
-│   └── (product image files)
-└── docs/                              # Documentation
-    └── user_guide.md                  # User guide
+# Run the application
+python shopping_cart_and_banking-system.py
 ```
 
-## 🚀 Quick Start
+## 🎯 Quick Start
 
-1. **First Run**: The application will create default configuration files
-2. **Admin Access**: Use password `admin123` to access admin panel
-3. **Create Account**: Start by creating a bank account
-4. **Add Products**: Use admin panel to add products with images
-5. **Start Shopping**: Browse products and add to cart
-6. **Make Payment**: Complete purchases using your bank account
+### First Time Setup
+1. Run the application
+2. Default admin password: `admin123`
+3. Demo user credentials:
+   - Email: `demo@example.com`
+   - Password: `demo123`
 
-## 💡 Usage
+### Admin Access
+- Click "Admin Panel" and enter the admin password
+- Manage users, products, categories, and view analytics
+- Access comprehensive reporting and export features
 
-### For Customers
-1. **Banking**: Create account → Deposit money → Transfer funds
-2. **Shopping**: Browse products → Add to cart → Checkout → Pay
+### Customer Features
+- Register a new account or login with existing credentials
+- Browse products by category
+- Add items to cart with automatic calculations
+- Complete checkout process with order tracking
+- View banking accounts and transaction history
 
-### For Administrators
-1. **Access Admin Panel**: Click "Admin" button and enter password
-2. **Manage Products**: Add products with multiple photos
-3. **Monitor Orders**: Track all customer orders
-4. **Generate Reports**: View sales and revenue analytics
+## 📁 File Structure
+
+```
+├── shopping_cart_and_banking-system.py    # Main application
+├── requirements.txt                        # Python dependencies
+├── install_dependencies.bat              # Windows installer
+├── run_app.bat                           # Windows launcher
+├── users.json                            # User credentials and data
+├── products.json                         # Product catalog
+├── categories.json                       # Product categories
+├── accounts.json                         # Banking accounts
+├── transactions.json                     # Transaction history
+├── history.json                          # Order history
+├── settings.json                         # Application settings
+├── analytics.json                        # User analytics data
+├── app.log                              # Application logs
+├── feedback.txt                         # Customer feedback
+├── shop.json                            # Shop information
+├── test_user_management.py              # User management tests
+├── test_app.py                          # Application tests
+├── USER_LOGIN_DOCUMENTATION.md          # User login features
+├── ADMIN_USER_MANAGEMENT_DOCS.md        # Admin documentation
+└── improvement_templates/               # Enhancement templates
+    ├── security_improvements.py
+    ├── ui_improvements.py
+    ├── analytics_improvements.py
+    ├── performance_improvements.py
+    ├── api_integrations.py
+    └── mobile_web_improvements.py
+```
+
+## 🔐 Security Features
+
+### Password Security
+- PBKDF2 hashing with salt (100,000 iterations)
+- Password strength validation
+- Automatic upgrade from plain text passwords
+
+### Session Security
+- Session tokens for authenticated users
+- Automatic logout after 30 minutes of inactivity
+- Activity tracking and session validation
+
+### Access Control
+- Rate limiting for login attempts
+- Account lockout after failed attempts
+- Role-based permissions (customer/admin)
+
+### Audit & Monitoring
+- Comprehensive logging of all user actions
+- Analytics tracking for behavior analysis
+- Error logging and crash reporting
+
+## 📊 Analytics Dashboard
+
+The application tracks various metrics:
+- User registration and login patterns
+- Product view and purchase statistics
+- Performance metrics for optimization
+- Error rates and system health
+
+## 🧪 Testing
+
+Run the included test scripts:
+```bash
+python test_user_management.py
+python test_app.py
+```
+
+## 🛡️ Data Privacy
+
+- User passwords are securely hashed and never stored in plain text
+- Session data is automatically cleaned up
+- Analytics data is anonymized where possible
+- All data files are stored locally
 
 ## 🔧 Configuration
 
-### Default Settings
-- **Admin Password**: `admin123` (can be changed in settings)
-- **Default Categories**: Pre-loaded with common product categories
-- **GST Rates**: Configurable per product
-- **Delivery Charges**: ₹5 for orders under ₹50
+### Settings File (settings.json)
+```json
+{
+  "dark_mode": false,
+  "notifications_enabled": true,
+  "language": "English"
+}
+```
 
-### Customization
-- Modify `DEFAULT_SETTINGS` in the main file
-- Update product categories in admin panel
-- Adjust GST rates and delivery charges
-- Customize UI colors and themes
+### Admin Settings
+- Admin password can be changed in the source code (ADMIN_PASSWORD variable)
+- User roles and permissions can be modified through the admin panel
 
-## 📊 Data Storage
+## 📈 Future Enhancements
 
-The application uses JSON files for data persistence:
-- **products.json**: Product catalog with photos and details
-- **accounts.json**: Bank account information
-- **transactions.json**: All financial transactions
-- **history.json**: Order history and status
+The application includes templates for future improvements:
+- **API Integration**: REST API, payment gateways, SMS/Email notifications
+- **Mobile Support**: Progressive Web App (PWA) capabilities
+- **Advanced Analytics**: Data visualization and reporting dashboards
+- **Performance Scaling**: Database migration, connection pooling
+- **Security Hardening**: JWT tokens, encryption, advanced threat protection
 
-## 🛡️ Security Features
+## 🐛 Troubleshooting
 
-- Password-protected admin panel
-- Transaction logging and audit trail
-- Data backup and restore functionality
-- Input validation and error handling
+### Common Issues
+1. **Python not found**: Ensure Python is installed and added to PATH
+2. **Pillow import error**: Run `pip install Pillow`
+3. **Permission errors**: Run as administrator if needed
+4. **Data corruption**: Delete `.json` files to reset to defaults
 
-## 🎨 Screenshots
-
-*Add screenshots of your application here*
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👤 Author
-
-**Ashish**
-- Email: 0241cys143@niet.co.in
-- Project: Banking & Shopping System
-
-## 🙏 Acknowledgments
-
-- Built with Python and Tkinter
-- Icons and UI inspiration from modern web applications
-- JSON for lightweight data storage
+### Logs
+Check `app.log` for detailed error information and system events.
 
 ## 📞 Support
 
-For support and questions:
-- Email: 0241cys143@niet.co.in
-- Create an issue in this repository
+For issues or questions:
+- Check the application logs (`app.log`)
+- Review the test scripts for usage examples
+- Refer to the documentation files in the project directory
 
-## 🔄 Version History
+## 📝 License
 
-- **v1.0.0** - Initial release with basic banking and shopping features
-- **v1.1.0** - Added multi-photo support for products
-- **v1.2.0** - Enhanced admin panel and reporting features
+This project is for educational and demonstration purposes. Please ensure proper licensing for commercial use.
+
+## 🎯 Version History
+
+### v2.0 (Current)
+- ✅ Secure authentication system with password hashing
+- ✅ Modern UI with notifications and progress indicators
+- ✅ Analytics tracking and performance monitoring
+- ✅ Enhanced admin panel with user management
+- ✅ Comprehensive logging and error handling
+- ✅ Improved checkout process with order tracking
+
+### v1.0 (Previous)
+- Basic shopping cart and banking functionality
+- Simple user interface
+- File-based data storage
+- Basic admin panel
 
 ---
 
-⭐ Star this repository if you find it helpful!
-"# banking-shopping-system" 
+**Note**: This application demonstrates modern software development practices including security, user experience, analytics, and maintainable code architecture.

@@ -1,0 +1,10 @@
+2025-07-06 14:57:37 - INFO - Application closed gracefully
+2025-07-06 15:00:45 - INFO - Analytics: purchase - {'order_id': 'ORD1751794245', 'total_amount': 1180000.0, 'item_count': 1, 'customer': 'Guest'}
+2025-07-06 15:00:45 - INFO - Order placed: ORD1751794245 - \u20b91180000.00
+2025-07-06 15:00:48 - INFO - Application closed gracefully
+2025-07-06 15:04:06 - INFO - Analytics: purchase - {'order_id': 'ORD1751794446', 'total_amount': 2360000.0, 'item_count': 1, 'customer': 'Guest'}
+2025-07-06 15:04:06 - INFO - Order placed: ORD1751794446 - \u20b92360000.00
+2025-07-06 15:04:08 - INFO - Application closed gracefully
+2025-07-06 15:05:44 - INFO - Application closed gracefully
+2025-07-06 15:09:58 - INFO - Application closed gracefully
+2025-07-06 15:19:01 - INFO - Application closed gracefully

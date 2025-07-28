@@ -1,0 +1,10 @@
+{
+  "admin@banking.com": {
+    "name": "System Admin",
+    "email": "admin@banking.com",
+    "password": "ba492fe7317471de25dae86714dfe1de:8e640f40a1fcc3cb2a222c0e16a347b19ed240c371b87720cf7013e3d2236b3e",
+    "role": "admin",
+    "is_active": true,
+    "created_date": "2025-07-28T18:12:27.234069"
+  }
+}

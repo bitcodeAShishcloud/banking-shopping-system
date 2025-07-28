@@ -1,0 +1,23 @@
+{
+  "dark_mode": false,
+  "notifications_enabled": true,
+  "language": "English",
+  "auto_logout_minutes": 30,
+  "theme": "modern",
+  "currency_symbol": "₹",
+  "date_format": "%Y-%m-%d",
+  "show_animations": true,
+  "sound_enabled": false,
+  "backup_enabled": true,
+  "security_level": "high",
+  "biometric_enabled": false,
+  "two_factor_auth": false,
+  "max_login_attempts": 3,
+  "password_expiry_days": 90,
+  "session_timeout_minutes": 60,
+  "encryption_enabled": true,
+  "audit_logging": true,
+  "data_retention_days": 365,
+  "backup_frequency": "daily",
+  "first_time_user_seen": true
+}
